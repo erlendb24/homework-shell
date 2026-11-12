@@ -23,29 +23,29 @@ if command is pwd -> PWD -> --||-- ->
 ### BRANCH 1 END:  
 returns to loop and waits for next command  
 
-BRANCH 2:  
+### BRANCH 2:  
 the process is forked ->  
 if process id != 0 -> PARENT  
 if process id == 0 -> CHILD  
 
-PARENT:  
+### PARENT:  
 waits for child process to terminate -> BRANCH 2 END  
 
-CHILD:  
+### CHILD:  
 calls execvp with arguments given ->  
 process is killed  
 
-BRANCH 2 END  
+### BRANCH 2 END  
 returns to loop and waits for next command  
 
-PWD:  
+### PWD:  
 Prints current working directory  
 
-CD:  
+### CD:  
 Changed current directory to the selected directory  
 if there is no directory in relative path that matches, it fails  
 
-LS:  
+### LS:  
 Prints directories  
 if flag -a is activated, prints "hidden" folders  
 if flag -l is activated, prints as a vertical list, instead of a block  
