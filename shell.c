@@ -230,6 +230,16 @@ void evaluate_command(char *buf) {
         return;
     }
 
+    // do this after built-ins, because they cannot return early anyway
+    int background_process = 0;
+    char *last = input[len_args(input) - 1];
+    if (*last == '&') {
+        background_process = 1;
+    }
+
+    // remove ampersand, because it cannot be used a proper argument
+    *input[strcspn(last, "&")] = '\0';
+
     pid = fork();
     if (pid < 0) {
         perror("fork() failed!");
@@ -239,6 +249,10 @@ void evaluate_command(char *buf) {
     if (pid == 0) {
         execvp(command, input);
         exit(EXIT_SUCCESS);
+    }
+
+    if (background_process) {
+        return;
     }
 
     wait(&wstatus);
