@@ -3,12 +3,84 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <dirent.h>
 
 #define BUF_SIZE 1024
+#define ALL 1
+#define LIST 2
+#define BOTH 3
 
 char *get_current_working_directory(void) {
     char *ptr = getcwd(NULL, 0);
     return ptr;
+}
+
+void list(void) {
+}
+
+int get_flags(char **args) {
+    int ch = 0;
+    int flag = 0;
+    while ((ch = getopt(2, args, "al")) != -1) {
+        switch (ch) {
+            case 'a':
+                flag += ALL;
+            case 'l':
+                flag += LIST;
+                break;
+            default:
+                break;
+        }
+    }
+
+    return flag;
+}
+
+void ls(char **args) {
+    struct dirent *dir;
+    DIR *dirp;
+    char *cwd;
+    int must_free_cwd = 0;
+
+    int flag = get_flags(args);
+
+    if (strcmp(args[1], "a") > 0) {
+        cwd = get_current_working_directory();
+        dirp = opendir(cwd);
+        must_free_cwd = 1;
+    } else {
+        dirp = opendir(args[1]);
+    }
+
+    if (dirp == NULL) {
+        if (must_free_cwd != 0) {
+            free(cwd);
+        }
+        perror("Not a directory!");
+        return;
+    }
+
+
+    while ((dir = readdir(dirp)) != NULL) {
+        if (flag < 1) {
+            if (strcmp(dir->d_name, ".") == 0 || 
+                strcmp(dir->d_name, "..") == 0) {
+                continue;
+            }
+        }
+        if (flag >= 2) {
+            list();
+            break;
+        }
+        printf("%s", dir->d_name);
+        printf("\t");
+    }
+
+    printf("\n");
+
+    if (must_free_cwd != 0) {
+        free(cwd);
+    }
 }
 
 void cd(char **args) {
@@ -34,6 +106,7 @@ void evaluate_command(char *buf) {
     }
 
     input[i] = NULL;
+    printf("%d\n", i);
 
     char *command = input[0];
 
@@ -43,6 +116,11 @@ void evaluate_command(char *buf) {
 
     if (strncmp(command, "cd", BUF_SIZE) == 0) {
         cd(input);
+        return;
+    }
+
+    if (strncmp(command, "ls", BUF_SIZE) == 0) {
+        ls(input);
         return;
     }
 
