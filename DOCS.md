@@ -49,3 +49,6 @@ if there is no directory in relative path that matches, it fails
 Prints directories  
 if flag -a is activated, prints "hidden" folders  
 if flag -l is activated, prints as a vertical list, instead of a block  
+
+use opendir on current dir, unless another dir is specified - 
+
