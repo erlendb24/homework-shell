@@ -57,7 +57,7 @@ void list(struct dirent *dir) {
     char buf[1024] = { 0 };
     lstat(dir->d_name, &stat);
     struct tm time = { 0 };
-    localtime_r(&stat.st_mtimespec.tv_sec, &time);
+    localtime_r(&stat.st_mtime, &time);
 
     if (S_ISDIR(stat.st_mode)) {
         printf("%c", 'd');
@@ -78,7 +78,7 @@ void list(struct dirent *dir) {
     for(int j = size_digits; j < 4; j++) {
         printf(" ");
     }
-    printf("%c%d", ' ', stat.st_nlink);
+    printf("%c%ld", ' ', stat.st_nlink);
 
     struct passwd *pw = getpwuid(stat.st_uid);
     struct group *gr = getgrgid(stat.st_gid);
@@ -90,7 +90,7 @@ void list(struct dirent *dir) {
     for(int m = size_digits; m < 9; m++) {
         printf(" ");
     }
-    printf("%c%lld", ' ', stat.st_size);
+    printf("%c%ld", ' ', stat.st_size);
     strftime(buf, sizeof(buf), "%b %d %H:%M", &time);
     printf("%c%s", ' ', buf);
     printf("%c%s", ' ', dir->d_name);
@@ -219,15 +219,18 @@ void evaluate_command(char *buf) {
         return;
     }
 
-    // do this after built-ins, because they cannot return early anyway
     int background_process = 0;
     char *last = input[len_args(input) - 1];
-    if (*last == '&') {
-        background_process = 1;
-    }
-
+    
     // remove ampersand, because it cannot be used a proper argument
-    *input[strcspn(last, "&")] = '\0';
+    size_t n = strlen(last);
+    if (n > 0 && last[n - 1] == '&') {
+        background_process = 1;
+        last[n - 1] = '\0';
+        if (last[0] == '\0') {
+            input[i - 1] = NULL;
+        }
+    }
 
     pid = fork();
     if (pid < 0) {
@@ -248,7 +251,7 @@ void evaluate_command(char *buf) {
     return;
 }
 
-int main(int argc, char **argv) {
+int main(void) {
     char buf[BUF_SIZE] = { 0 };
     int should_close = 0;
     char *cwd = get_current_working_directory();
