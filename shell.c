@@ -8,6 +8,7 @@
 #include <grp.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #define BUF_SIZE 1024
 #define LIST 1
@@ -187,12 +188,53 @@ void cd(char **args) {
     }
 }
 
+int is_in_dir(char* dir_path, char* target) {
+    DIR *dir_p = opendir(dir_path);
+    struct dirent *dir = { 0 };
+    while ((dir = readdir(dir_p)) != NULL) {
+        if ((strncmp(dir->d_name, target, 1024)) == 0) {
+            return 1;
+        }
+    }
+
+    return -1;
+}
+char *is_in_PATH(char *target) {
+    char *PATH = getenv("PATH");
+    char *paths[1024] = { 0 };
+    char *token;
+    char found[1024];
+    int i = 0;
+
+    PATH[strcspn(PATH, "\n")] = '\0';
+
+    for (;(token = strsep(&PATH, ":")); i++) {
+        paths[i] = token;
+    }
+
+    paths[i - 1] = NULL;
+
+    for (int j = 0; paths[j] != NULL; j++) {
+        if ((is_in_dir(paths[j], target)) != -1) {
+            snprintf(found, 1024, "%s/%s", paths[j], target);
+            return strdup(found);
+        }
+    }
+
+    return "Not found!";
+}
+
 void evaluate_command(char *buf) {
     char *token;
     char *input[256] = { 0 };
     int i = 0;
     int wstatus;
     pid_t pid;
+
+    if (buf[0] == '\0' ||
+        buf[0] == '\n') {
+        return;
+    }
 
     buf[strcspn(buf, "\n")] = '\0';
 
@@ -232,14 +274,28 @@ void evaluate_command(char *buf) {
         }
     }
 
+    // if its not a built-in, we check path
+    if (command[0] != '/' &&
+        command[0] != '~' &&
+       (command[0] != '.' &&
+        command[1] != '/')) {
+        char *path_checked = is_in_PATH(command);
+        if ((strncmp(path_checked, "Not found", 1024)) != 0) {
+            command = path_checked;
+        }
+    }
+
     pid = fork();
     if (pid < 0) {
-        perror("fork() failed!");
+        perror("fork() failed");
         return;
     }
 
     if (pid == 0) {
-        execvp(command, input);
+        if (execvp(command, input) < 0) {
+            perror("execvp() failed");
+            exit(EXIT_FAILURE);
+        }
         exit(EXIT_SUCCESS);
     }
 
@@ -259,6 +315,7 @@ int main(void) {
 
     while (!should_close) {
         fputs("> ", stdout);
+        fflush(stdout);
         fgets(buf, BUF_SIZE, stdin);
         evaluate_command(buf);
     }
