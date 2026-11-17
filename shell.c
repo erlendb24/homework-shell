@@ -114,7 +114,6 @@ int get_flags(char **args) {
         }
     }
 
-    printf("%d", flag);
     return flag;
 }
 
@@ -145,17 +144,12 @@ void print_dirs(struct dirent *dir, DIR *dirp, int flag) {
 }
 
 void ls(char **args) {
-    for (int j = 0; args[j] != NULL; j++) {
-        printf("%d: %s\n", j, args[j]);
-    }
-
     struct dirent *dir = NULL;
     DIR *dirp;
     char *cwd;
     int must_free_cwd = 0;
 
     int flag = get_flags(args);
-    printf("FLAG: %d", flag);
 
     if (args[optind] == NULL) {
         cwd = get_current_working_directory();
@@ -183,11 +177,11 @@ void ls(char **args) {
 }
 
 void cd(char **args) {
-    fprintf(stderr, "[%s]\n", args[1]);
-    for (const char *p = args[1]; *p; p++)
-        fprintf(stderr, "%02x ", (unsigned char)*p);
-    fprintf(stderr, "\n");
-    int rc = chdir(args[1]);
+    char *dest = args[1];
+    if (args[1] == NULL) {
+        dest = "/home";
+    }
+    int rc = chdir(dest);
     if (rc != 0) {
         perror("chdir() failed!");
     }
@@ -207,13 +201,8 @@ void evaluate_command(char *buf) {
     }
 
     input[i] = NULL;
-    printf("%d\n", i);
 
     char *command = input[0];
-
-    for (int j = 0; input[j] != NULL; j++) {
-        printf("%d: %s\n", j, input[j]);
-    }
 
     if (strncmp(command, "cd", BUF_SIZE) == 0) {
         cd(input);
