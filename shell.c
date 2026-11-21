@@ -37,6 +37,29 @@ int len_args(char **args) {
     return count;
 }
 
+int len_pipe(char **input) {
+    // starts at 1, this is used as amount parts in the pipe
+    int count = 1;
+    for (int i = 0; input[i] != NULL; i++) {
+        if (strcmp(input[i], "|") == 0) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+void split_pipes(char **input, char **commands[]) {
+    int n = 0;
+    commands[n++] = &input[0];
+    for (int i = 0; input[i] != NULL; i++) {
+        if (strcmp(input[i], "|") == 0) {
+            input[i] = NULL;
+            commands[n++] = &input[i + 1];
+        }
+    }
+}
+
 int check_amt_digits(int number) {
     if (number < 10) {
         return 1;
@@ -144,6 +167,59 @@ void print_dirs(struct dirent *dir, DIR *dirp, int flag) {
 
 }
 
+void pipe_commands(char **commands[], int n) {
+    int prev = -1;
+
+    for (int i = 0; i < n; i++) {
+        int fd[2]; 
+        pid_t pid = 0;
+
+        if (i < n - 1 && pipe(fd) != 0) {
+            perror("pipe");
+            return;
+        }
+
+        pid = fork();
+        
+        // if failed
+        if (pid < 0) {
+            perror("fork");
+            return;
+        }
+
+        // if child
+        if (pid == 0) {
+            // if we're at the last element of the pipe
+            if (prev != -1) {
+                dup2(prev, STDIN_FILENO);
+                close(prev);
+            }
+            if (i < n - 1) {
+                dup2(fd[1], STDOUT_FILENO);
+                close(fd[0]);
+                close(fd[1]);
+            }
+            // TODO: Check if its a builtin or not
+            execvp(commands[i][0], commands[i]);
+            perror(commands[i][0]);
+            exit(EXIT_FAILURE);
+        }
+
+        // if parent
+        if (prev != -1) {
+            close(prev);
+        }
+        if (i < n - 1) {
+            close(fd[1]);
+            prev = fd[0];
+        }
+    }
+
+    for (int i = 0; i < n; i++) {
+        wait(NULL);
+    }
+}
+
 void ls(char **args) {
     struct dirent *dir = NULL;
     DIR *dirp;
@@ -199,7 +275,7 @@ int is_in_dir(char* dir_path, char* target) {
 
     return -1;
 }
-char *is_in_PATH(char *target) {
+char *dir_in_PATH(char *target) {
     char *PATH = getenv("PATH");
     char *paths[1024] = { 0 };
     char *token;
@@ -246,6 +322,15 @@ void evaluate_command(char *buf) {
 
     char *command = input[0];
 
+    int amount_of_pipes = len_pipe(input);
+    char **pipe_input[amount_of_pipes];
+    if (amount_of_pipes > 0) {
+        i = 0;
+        split_pipes(input, pipe_input);
+        pipe_commands(pipe_input, amount_of_pipes);
+        return;
+    }
+
     if (strncmp(command, "cd", BUF_SIZE) == 0) {
         cd(input);
         return;
@@ -279,7 +364,7 @@ void evaluate_command(char *buf) {
         command[0] != '~' &&
        (command[0] != '.' &&
         command[1] != '/')) {
-        char *path_checked = is_in_PATH(command);
+        char *path_checked = dir_in_PATH(command);
         if ((strncmp(path_checked, "Not found", 1024)) != 0) {
             command = path_checked;
         }
@@ -292,8 +377,8 @@ void evaluate_command(char *buf) {
     }
 
     if (pid == 0) {
-        if (execvp(command, input) < 0) {
-            perror("execvp() failed");
+        if (execv(command, input) < 0) {
+            perror("execv() failed");
             exit(EXIT_FAILURE);
         }
         exit(EXIT_SUCCESS);
