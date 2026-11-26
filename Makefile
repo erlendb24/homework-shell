@@ -1,2 +1,2 @@
 all:
-	cc -Wall -Wextra -pedantic -g shell.c -o shell
+	gcc -std=gnu99 -Wall -Wextra -pedantic shell.c -o shell
