@@ -1,5 +1,7 @@
 # Homework shell
 
+Notes for wanted behaviour of the program
+
 ## Flow for user:
 
 User runs ./shell -> opens the interactive shell -> 
