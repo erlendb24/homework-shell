@@ -14,19 +14,101 @@
 #define LIST 1
 #define ALL 2
 #define BOTH 3
+#define READ 0
+#define WRITE 1
 
 char *get_current_working_directory(void) {
     char *ptr = getcwd(NULL, 0);
     return ptr;
 }
 
-void pwd(void) {
-    char *cwd = get_current_working_directory();
-    char full_path[1024] = { 0 };
-    printf("%s\n", realpath(cwd, full_path));
-    free(cwd);
+int is_in_dir(char* dir_path, char* target) {
+    DIR *dir_p = opendir(dir_path);
+    if (dir_p == NULL) {
+        return -1;
+    }
+    struct dirent *dir = { 0 };
+    while ((dir = readdir(dir_p)) != NULL) {
+        if ((strncmp(dir->d_name, target, 1024)) == 0) {
+            closedir(dir_p);
+            return 1;
+        }
+    }
 
+    closedir(dir_p);
+    return -1;
 }
+
+// need to free what this returns
+char *dir_in_PATH(char *target) {
+    char *PATH = getenv("PATH");
+    if (PATH == NULL) {
+        return NULL;
+    }
+    char *copy = strdup(PATH);
+    // make rest point to copy, so that we can free the whole copy
+    char *rest = copy;
+
+    char *paths[1024] = { 0 };
+    char *token;
+    char found[1024];
+    char *result = NULL;
+    int i = 0;
+
+    rest[strcspn(rest, "\n")] = '\0';
+
+    for (;(token = strsep(&rest, ":")); i++) {
+        paths[i] = token;
+    }
+
+    for (int j = 0; paths[j] != NULL; j++) {
+        if ((is_in_dir(paths[j], target)) != -1) {
+            snprintf(found, 1024, "%s/%s", paths[j], target);
+             result = strdup(found);
+             break;
+        }
+    }
+    free(copy);
+    return result;
+}
+
+char *get_path_if_in_PATH(char *command) {
+    char *path_checked = NULL;
+    if (command[0] != '/' &&
+        command[0] != '~' &&
+       (command[0] != '.' &&
+        command[1] != '/')) {
+        path_checked = dir_in_PATH(command);
+        if (path_checked != NULL) {
+            command = strdup(path_checked);
+        }
+    }
+
+    free(path_checked);
+    return command;
+}
+
+char *get_home_directory(void) {
+    uid_t user_id = getuid();
+    struct passwd *user_passwd = getpwuid(user_id);
+    char *home_dir = strdup(user_passwd->pw_dir);
+    char *full_path = realpath(home_dir, NULL);
+    fprintf(stderr, "%s\n", full_path);
+    free(home_dir);
+    return full_path;
+}
+
+int check_if_builtin(char *command) {
+    if (strncmp(command, "cd", BUF_SIZE) == 0 ||
+        strncmp(command, "ls", BUF_SIZE) == 0 ||
+        strncmp(command, "pwd", BUF_SIZE) == 0 ||
+        strncmp(command, "last", BUF_SIZE) == 0) {
+        return 1;
+    }
+
+    return 0;
+}
+
 
 int len_args(char **args) {
     int count = 0;
@@ -76,10 +158,15 @@ void bitwise_print(struct stat *stat, int constant, char char_to_print) {
     }
 }
 
-void list(struct dirent *dir) {
+void list(struct dirent *dir, char *dir_path) {
+    char absolute_path[1024];
+    snprintf(absolute_path, 1024, "%s/%s", dir_path, dir->d_name);
     struct stat stat = { 0 };
     char buf[1024] = { 0 };
-    lstat(dir->d_name, &stat);
+    if (lstat(absolute_path, &stat) != 0) {
+        perror(absolute_path);
+        return;
+    }
     struct tm time = { 0 };
     localtime_r(&stat.st_mtime, &time);
 
@@ -98,11 +185,6 @@ void list(struct dirent *dir) {
         bitwise_print(&stat, S_IWOTH, 'w');
         bitwise_print(&stat, S_IXOTH, 'x');
     }
-    int size_digits = check_amt_digits(stat.st_nlink);
-    for(int j = size_digits; j < 4; j++) {
-        printf(" ");
-    }
-    printf("%c%ld", ' ', stat.st_nlink);
 
     struct passwd *pw = getpwuid(stat.st_uid);
     struct group *gr = getgrgid(stat.st_gid);
@@ -110,7 +192,7 @@ void list(struct dirent *dir) {
     printf("%c%s", ' ', pw->pw_name);
     printf("%c%s", ' ', gr->gr_name);
 
-    size_digits = check_amt_digits(stat.st_size);
+    int size_digits = check_amt_digits(stat.st_size);
     for(int m = size_digits; m < 9; m++) {
         printf(" ");
     }
@@ -123,8 +205,7 @@ void list(struct dirent *dir) {
 
 int get_flags(char **args) {
     optind = 1;
-    int ch = 0;
-    int flag = 0;
+    int ch, flag = 0;
     while ((ch = getopt(len_args(args), args, "al")) != -1) {
         switch (ch) {
             case 'a':
@@ -141,8 +222,8 @@ int get_flags(char **args) {
     return flag;
 }
 
-void print_dir(struct dirent *dir, int flag) {
-    if (flag <= 1) {
+void print_dir(char *dir_path, struct dirent *dir, int flag) {
+    if (flag <= LIST) {
         if (strcmp(dir->d_name, ".") == 0 || 
             strcmp(dir->d_name, "..") == 0 || 
             dir->d_name[0] == '.') {
@@ -150,33 +231,123 @@ void print_dir(struct dirent *dir, int flag) {
         }
     }
 
-    if (flag == 1 || flag == 3) {
-        list(dir);
+    if (flag == LIST || flag == BOTH) {
+        list(dir, dir_path);
         return;
     }
 
     printf("%s\t", dir->d_name);
 }
 
-void print_dirs(struct dirent *dir, DIR *dirp, int flag) {
+void print_dirs(char *dir_path, DIR *dirp, int flag) {
+    struct dirent *dir;
     while ((dir = readdir(dirp)) != NULL) {
-        print_dir(dir, flag);
+        print_dir(dir_path, dir, flag);
     }
 
     printf("\n");
 
 }
 
-void pipe_commands(char **commands[], int n) {
+void ls(char **args) {
+    DIR *dirp;
+    char *cwd;
+    char *dir_path;
+    int must_free_cwd = 0;
+
+    int flag = get_flags(args);
+
+    if (args[optind] == NULL) {
+        cwd = get_current_working_directory();
+        dir_path = cwd;
+        must_free_cwd = 1;
+    } else {
+        dir_path = args[optind];
+    }
+
+    dirp = opendir(dir_path);
+    if (dirp == NULL) {
+        if (must_free_cwd != 0) {
+            free(cwd);
+        }
+        perror("Not a directory!");
+        return;
+    }
+
+    print_dirs(dir_path, dirp, flag);
+
+    closedir(dirp);
+    if (must_free_cwd != 0) {
+        free(cwd);
+    }
+
+}
+
+void pwd(void) {
+    char *cwd = get_current_working_directory();
+    char full_path[1024] = { 0 };
+    printf("%s\n", realpath(cwd, full_path));
+    free(cwd);
+
+}
+
+void cd(char **args) {
+    char *dest = args[1];
+    int rc = 0;
+    // if no argument, go to home
+    if (args[1] == NULL) {
+        char *home_dir = get_home_directory();
+        chdir(home_dir);
+        free(home_dir);
+        // use rc here, don't wanna duplicate free() call
+        if (rc != 0) {
+            perror("chdir");
+        }
+        return;
+    }
+
+    if (chdir(dest) != 0) {
+        perror("chdir");
+    }
+}
+
+void run_builtin(char *command, char **args, int *previous_result) {
+    if (strncmp(command, "cd", BUF_SIZE) == 0) {
+        cd(args);
+        return;
+    }
+
+    if (strncmp(command, "ls", BUF_SIZE) == 0) {
+        ls(args);
+        return;
+    }
+
+    if (strncmp(command, "pwd", BUF_SIZE) == 0) {
+        pwd();
+        return;
+    }
+
+    if (strncmp(command, "last", BUF_SIZE) == 0) {
+        printf("Last command returned: %d\n", *previous_result);
+        return;
+    }
+}
+
+
+void pipe_commands(char **commands[], int n, 
+                   int background, int *previous_result) {
+    int wstatus = 0;
     int prev = -1;
+    int last_elem = n - 1;
 
     for (int i = 0; i < n; i++) {
         int fd[2]; 
         pid_t pid = 0;
+        char *first_command = commands[i][0];
 
-        if (i < n - 1 && pipe(fd) != 0) {
+        if (i < last_elem && pipe(fd) != 0) {
             perror("pipe");
-            return;
+            break;
         }
 
         pid = fork();
@@ -184,7 +355,7 @@ void pipe_commands(char **commands[], int n) {
         // if failed
         if (pid < 0) {
             perror("fork");
-            return;
+            break;
         }
 
         // if child
@@ -194,113 +365,49 @@ void pipe_commands(char **commands[], int n) {
                 dup2(prev, STDIN_FILENO);
                 close(prev);
             }
-            if (i < n - 1) {
-                dup2(fd[1], STDOUT_FILENO);
-                close(fd[0]);
-                close(fd[1]);
+            if (i < last_elem) {
+                dup2(fd[WRITE], STDOUT_FILENO);
+                close(fd[READ]);
+                close(fd[WRITE]);
             }
-            // TODO: Check if its a builtin or not
-            execvp(commands[i][0], commands[i]);
-            perror(commands[i][0]);
-            exit(EXIT_FAILURE);
+
+            if (check_if_builtin(first_command)) {
+                run_builtin(first_command, commands[i], previous_result);
+                fflush(stdout);
+                _exit(EXIT_SUCCESS);
+            } else {
+                first_command = get_path_if_in_PATH(first_command);
+                execv(first_command, commands[i]);
+                perror(first_command);
+                _exit(EXIT_FAILURE);
+            }
         }
 
         // if parent
         if (prev != -1) {
             close(prev);
         }
-        if (i < n - 1) {
-            close(fd[1]);
-            prev = fd[0];
+        if (i < last_elem) {
+            close(fd[WRITE]);
+            prev = fd[READ];
         }
+
+        // if (!background) {
+        //      waitpid(pid, NULL, 0);
+        // }
+    }
+    if (prev != -1) {
+        close(prev);
     }
 
     for (int i = 0; i < n; i++) {
-        wait(NULL);
+        wait(&wstatus);
+        *previous_result = WEXITSTATUS(wstatus);
     }
 }
 
-void ls(char **args) {
-    struct dirent *dir = NULL;
-    DIR *dirp;
-    char *cwd;
-    int must_free_cwd = 0;
 
-    int flag = get_flags(args);
-
-    if (args[optind] == NULL) {
-        cwd = get_current_working_directory();
-        dirp = opendir(cwd);
-        must_free_cwd = 1;
-    } else {
-        dirp = opendir(args[optind]);
-    }
-
-    if (dirp == NULL) {
-        if (must_free_cwd != 0) {
-            free(cwd);
-        }
-        perror("Not a directory!");
-        return;
-    }
-
-    print_dirs(dir, dirp, flag);
-
-    closedir(dirp);
-    if (must_free_cwd != 0) {
-        free(cwd);
-    }
-
-}
-
-void cd(char **args) {
-    char *dest = args[1];
-    if (args[1] == NULL) {
-        dest = "/home";
-    }
-    int rc = chdir(dest);
-    if (rc != 0) {
-        perror("chdir() failed!");
-    }
-}
-
-int is_in_dir(char* dir_path, char* target) {
-    DIR *dir_p = opendir(dir_path);
-    struct dirent *dir = { 0 };
-    while ((dir = readdir(dir_p)) != NULL) {
-        if ((strncmp(dir->d_name, target, 1024)) == 0) {
-            return 1;
-        }
-    }
-
-    return -1;
-}
-char *dir_in_PATH(char *target) {
-    char *PATH = getenv("PATH");
-    char *paths[1024] = { 0 };
-    char *token;
-    char found[1024];
-    int i = 0;
-
-    PATH[strcspn(PATH, "\n")] = '\0';
-
-    for (;(token = strsep(&PATH, ":")); i++) {
-        paths[i] = token;
-    }
-
-    paths[i - 1] = NULL;
-
-    for (int j = 0; paths[j] != NULL; j++) {
-        if ((is_in_dir(paths[j], target)) != -1) {
-            snprintf(found, 1024, "%s/%s", paths[j], target);
-            return strdup(found);
-        }
-    }
-
-    return "Not found!";
-}
-
-void evaluate_command(char *buf) {
+void evaluate_command(char *buf, int *previous_result) {
     char *token;
     char *input[256] = { 0 };
     int i = 0;
@@ -321,35 +428,10 @@ void evaluate_command(char *buf) {
     input[i] = NULL;
 
     char *command = input[0];
-
-    int amount_of_pipes = len_pipe(input);
-    char **pipe_input[amount_of_pipes];
-    if (amount_of_pipes > 0) {
-        i = 0;
-        split_pipes(input, pipe_input);
-        pipe_commands(pipe_input, amount_of_pipes);
-        return;
-    }
-
-    if (strncmp(command, "cd", BUF_SIZE) == 0) {
-        cd(input);
-        return;
-    }
-
-    if (strncmp(command, "ls", BUF_SIZE) == 0) {
-        ls(input);
-        return;
-    }
-
-    if (strncmp(command, "pwd", BUF_SIZE) == 0) {
-        pwd();
-        return;
-    }
-
     int background_process = 0;
     char *last = input[len_args(input) - 1];
+
     
-    // remove ampersand, because it cannot be used a proper argument
     size_t n = strlen(last);
     if (n > 0 && last[n - 1] == '&') {
         background_process = 1;
@@ -359,16 +441,25 @@ void evaluate_command(char *buf) {
         }
     }
 
-    // if its not a built-in, we check path
-    if (command[0] != '/' &&
-        command[0] != '~' &&
-       (command[0] != '.' &&
-        command[1] != '/')) {
-        char *path_checked = dir_in_PATH(command);
-        if ((strncmp(path_checked, "Not found", 1024)) != 0) {
-            command = path_checked;
-        }
+    int arguments_for_pipe = len_pipe(input);
+    char **pipe_input[arguments_for_pipe];
+    if (arguments_for_pipe > 1) {
+        i = 0;
+        split_pipes(input, pipe_input);
+        pipe_commands(pipe_input, arguments_for_pipe, 
+                      background_process, previous_result);
+        return;
     }
+
+    if (check_if_builtin(command) != 0) {
+        run_builtin(command, input, previous_result);
+        return;
+    }
+    
+    // remove ampersand, because it cannot be used a proper argument
+
+    // if its not a built-in, we check path
+    command = get_path_if_in_PATH(command);
 
     pid = fork();
     if (pid < 0) {
@@ -377,11 +468,9 @@ void evaluate_command(char *buf) {
     }
 
     if (pid == 0) {
-        if (execv(command, input) < 0) {
-            perror("execv() failed");
-            exit(EXIT_FAILURE);
-        }
-        exit(EXIT_SUCCESS);
+        execv(command, input);
+        perror("execv() failed");
+        exit(EXIT_FAILURE);
     }
 
     if (background_process) {
@@ -389,19 +478,29 @@ void evaluate_command(char *buf) {
     }
 
     wait(&wstatus);
+    *previous_result = WEXITSTATUS(wstatus);
+    
+    // command could be dynamically allocated!
+    // if we set it to NULL, it can safely be freed, even if its not allocated 
+    // dynamically
+    command = NULL;
+    free(command);
     return;
 }
 
 int main(void) {
     char buf[BUF_SIZE] = { 0 };
     int should_close = 0;
+    int previous_result = 0;
     char *cwd = get_current_working_directory();
     fprintf(stderr, "%s\n", cwd);
 
     while (!should_close) {
         fputs("> ", stdout);
         fflush(stdout);
-        fgets(buf, BUF_SIZE, stdin);
-        evaluate_command(buf);
+        if (fgets(buf, BUF_SIZE, stdin) == NULL) {
+            break;
+        }
+        evaluate_command(buf, &previous_result);
     }
 }
