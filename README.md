@@ -8,8 +8,8 @@ Subsequent runs: `./shell`.
 
 ## ls
 
-`ls` - lists contents of current working directory.
-`ls <PATH>` - lists contents of given directory in the path.
+`ls` - lists contents of current working directory.  
+`ls <PATH>` - lists contents of given directory in the path.  
 `ls -<FLAG> <PATH>` - lists contents of given directory in the path, with flag.
 
 ### ls flags
@@ -18,7 +18,7 @@ Any combination of the supported flags works, thanks to the getopt function.
 
 Supported flags:
 
-`-a` - lists all contents of directory, including hidden folders.
+`-a` - lists all contents of directory, including hidden folders.  
 `-l` - lists contents of directory, row by row, with permissions, user, group, 
 size and date last touched.
 
