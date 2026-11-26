@@ -10,6 +10,7 @@ Subsequent runs: `./shell`.
 
 `ls` - lists contents of current working directory.
 `ls <PATH>` - lists contents of given directory in the path.
+`ls -<FLAG> <PATH>` - lists contents of given directory in the path, with flag.
 
 ### ls flags
 

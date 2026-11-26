@@ -1,2 +1,2 @@
 all:
-	cc -Wall -Wextra -pedantic shell.c -o shell
+	cc -Wall -Wextra -pedantic -g shell.c -o shell

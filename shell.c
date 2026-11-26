@@ -72,6 +72,7 @@ char *dir_in_PATH(char *target) {
     return result;
 }
 
+// need to free what this returns
 char *get_path_if_in_PATH(char *command) {
     char *path_checked = NULL;
     if (command[0] != '/' &&
@@ -89,6 +90,7 @@ char *get_path_if_in_PATH(char *command) {
     return NULL;
 }
 
+// need to free what this returns
 char *get_home_directory(void) {
     uid_t user_id = getuid();
     struct passwd *user_passwd = getpwuid(user_id);
@@ -108,7 +110,6 @@ int check_if_builtin(char *command) {
 
     return 0;
 }
-
 
 int len_args(char **args) {
     int count = 0;
@@ -255,6 +256,7 @@ void ls(char **args) {
     char *dir_path;
     int must_free_cwd = 0;
 
+    // uses getopt() and moves optind
     int flag = get_flags(args);
 
     if (args[optind] == NULL) {
@@ -460,9 +462,9 @@ void evaluate_command(char *buf, int *previous_result) {
     
 
     // if its not a built-in, we check path
-    
-    //can be NULL
-    char *path_command;
+
+    char *path_command; //can be NULL
+
     path_command = get_path_if_in_PATH(command);
     if (path_command != NULL) {
         command = path_command;
@@ -487,14 +489,9 @@ void evaluate_command(char *buf, int *previous_result) {
     wait(&wstatus);
     *previous_result = WEXITSTATUS(wstatus);
     
-    // command could be dynamically allocated!
-    // if we set it to NULL, it can safely be freed, even if its not allocated 
-    // dynamically
     free(path_command);
     return;
 }
-
-// TODO: More comments, and maybe background process in pipes? I dunno if I care
 
 int main(void) {
     char buf[BUF_SIZE] = { 0 };
