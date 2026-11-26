@@ -81,11 +81,12 @@ char *get_path_if_in_PATH(char *command) {
         path_checked = dir_in_PATH(command);
         if (path_checked != NULL) {
             command = strdup(path_checked);
+            free(path_checked);
+            return command;
         }
     }
 
-    free(path_checked);
-    return command;
+    return NULL;
 }
 
 char *get_home_directory(void) {
@@ -93,7 +94,6 @@ char *get_home_directory(void) {
     struct passwd *user_passwd = getpwuid(user_id);
     char *home_dir = strdup(user_passwd->pw_dir);
     char *full_path = realpath(home_dir, NULL);
-    fprintf(stderr, "%s\n", full_path);
     free(home_dir);
     return full_path;
 }
@@ -339,6 +339,7 @@ void pipe_commands(char **commands[], int n,
     int wstatus = 0;
     int prev = -1;
     int last_elem = n - 1;
+    pid_t pids[64];
 
     for (int i = 0; i < n; i++) {
         int fd[2]; 
@@ -360,17 +361,18 @@ void pipe_commands(char **commands[], int n,
 
         // if child
         if (pid == 0) {
-            // if we're at the last element of the pipe
+            pids[i] = pid;
+            // if we're not at the first element of the pipe
             if (prev != -1) {
                 dup2(prev, STDIN_FILENO);
                 close(prev);
             }
+            // if we're not at the last element of the pipe
             if (i < last_elem) {
                 dup2(fd[WRITE], STDOUT_FILENO);
                 close(fd[READ]);
                 close(fd[WRITE]);
             }
-
             if (check_if_builtin(first_command)) {
                 run_builtin(first_command, commands[i], previous_result);
                 fflush(stdout);
@@ -391,18 +393,17 @@ void pipe_commands(char **commands[], int n,
             close(fd[WRITE]);
             prev = fd[READ];
         }
-
-        // if (!background) {
-        //      waitpid(pid, NULL, 0);
-        // }
     }
     if (prev != -1) {
         close(prev);
     }
 
-    for (int i = 0; i < n; i++) {
-        wait(&wstatus);
-        *previous_result = WEXITSTATUS(wstatus);
+    if (!background) {
+        for (int i = 0; i < n; i++) {
+            wait(&wstatus);
+            waitpid(pids[i], &wstatus, 0);
+            *previous_result = WEXITSTATUS(wstatus);
+        }
     }
 }
 
@@ -432,6 +433,7 @@ void evaluate_command(char *buf, int *previous_result) {
     char *last = input[len_args(input) - 1];
 
     
+    // remove ampersand, because it cannot be used a proper argument
     size_t n = strlen(last);
     if (n > 0 && last[n - 1] == '&') {
         background_process = 1;
@@ -456,10 +458,15 @@ void evaluate_command(char *buf, int *previous_result) {
         return;
     }
     
-    // remove ampersand, because it cannot be used a proper argument
 
     // if its not a built-in, we check path
-    command = get_path_if_in_PATH(command);
+    
+    //can be NULL
+    char *path_command;
+    path_command = get_path_if_in_PATH(command);
+    if (path_command != NULL) {
+        command = path_command;
+    }
 
     pid = fork();
     if (pid < 0) {
@@ -483,17 +490,16 @@ void evaluate_command(char *buf, int *previous_result) {
     // command could be dynamically allocated!
     // if we set it to NULL, it can safely be freed, even if its not allocated 
     // dynamically
-    command = NULL;
-    free(command);
+    free(path_command);
     return;
 }
+
+// TODO: More comments, and maybe background process in pipes? I dunno if I care
 
 int main(void) {
     char buf[BUF_SIZE] = { 0 };
     int should_close = 0;
     int previous_result = 0;
-    char *cwd = get_current_working_directory();
-    fprintf(stderr, "%s\n", cwd);
 
     while (!should_close) {
         fputs("> ", stdout);

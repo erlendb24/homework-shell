@@ -33,5 +33,5 @@ If there is no argument given, `cd` changes the cwd to the home directory.
 
 ## last
 
-`last` - prints exit status of last non-builtin command
+`last` - prints return value of last non-builtin command
 
